@@ -1,0 +1,23 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <RootNamespace>SimTelemetry</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+    <PackageReference Include="Microsoft.Data.Sqlite" Version="8.0.11" />
+    <PackageReference Include="Google.Protobuf" Version="3.28.3" />
+    <PackageReference Include="Grpc.Tools" Version="2.67.0" PrivateAssets="all" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Protobuf Include="..\..\proto\telemetry.proto" ProtoRoot="..\..\proto" GrpcServices="None" />
+    <Protobuf Include="..\..\proto\broker.proto" ProtoRoot="..\..\proto" GrpcServices="None" />
+  </ItemGroup>
+
+</Project>

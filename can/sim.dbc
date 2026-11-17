@@ -1,0 +1,42 @@
+VERSION "sim-corrida"
+
+NS_ :
+
+BS_:
+
+BU_: PHYSICS DRIVER ECU BOX
+
+BO_ 256 SENSORS: 5 PHYSICS
+ SG_ speed : 0|16@1+ (0.01,0) [0|655.35] "m/s" ECU
+ SG_ rpm : 16|16@1+ (1,0) [0|65535] "rpm" ECU
+ SG_ gear : 32|8@1+ (1,0) [0|255] "" ECU
+
+BO_ 512 DRIVER: 7 DRIVER
+ SG_ throttle : 0|16@1+ (0.0001,0) [0|1] "" ECU
+ SG_ brake : 16|16@1+ (0.0001,0) [0|1] "" ECU
+ SG_ steer : 32|16@1- (0.0001,0) [-1|1] "" ECU
+ SG_ flags : 48|8@1+ (1,0) [0|255] "" ECU
+
+BO_ 768 ACTUATORS: 7 ECU
+ SG_ throttle : 0|16@1+ (0.0001,0) [0|1] "" PHYSICS
+ SG_ brake : 16|16@1+ (0.0001,0) [0|1] "" PHYSICS
+ SG_ steer : 32|16@1- (0.0001,0) [-1|1] "" PHYSICS
+ SG_ flags : 48|8@1+ (1,0) [0|255] "" PHYSICS
+
+BO_ 784 GEAR: 1 ECU
+ SG_ gear_request : 0|8@1+ (1,0) [0|255] "" PHYSICS
+
+BO_ 1024 TELEMETRY: 8 ECU
+ SG_ speed : 0|16@1+ (0.01,0) [0|655.35] "m/s" BOX
+ SG_ rpm : 16|16@1+ (1,0) [0|65535] "rpm" BOX
+ SG_ throttle : 32|8@1+ (0.004,0) [0|1] "" BOX
+ SG_ brake : 40|8@1+ (0.004,0) [0|1] "" BOX
+ SG_ gear : 48|8@1+ (1,0) [0|255] "" BOX
+ SG_ flags : 56|8@1+ (1,0) [0|255] "" BOX
+
+BA_DEF_ BO_ "GenMsgCycleTime" INT 0 65535;
+BA_ "GenMsgCycleTime" BO_ 256 1;
+BA_ "GenMsgCycleTime" BO_ 512 1;
+BA_ "GenMsgCycleTime" BO_ 768 1;
+BA_ "GenMsgCycleTime" BO_ 784 1;
+BA_ "GenMsgCycleTime" BO_ 1024 10;

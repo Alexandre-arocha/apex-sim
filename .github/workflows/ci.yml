@@ -1,0 +1,131 @@
+name: ci
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  build-test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - {cc: gcc, cxx: g++}
+          - {cc: clang, cxx: clang++}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Configure (avisos como erro)
+        run: cmake -S . -B build -DCMAKE_C_COMPILER=${{ matrix.cc }} -DCMAKE_CXX_COMPILER=${{ matrix.cxx }} -DCMAKE_BUILD_TYPE=Release
+      - run: cmake --build build -j
+      - run: ctest --test-dir build --output-on-failure
+
+  # A ECU e o codec CAN compilam para um Cortex-M4 real (so compila: nao ha placa nem emulador).
+  ecu-arm:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: sudo apt-get update && sudo apt-get install -y gcc-arm-none-eabi binutils-arm-none-eabi
+      - name: Compila para Cortex-M4 com -Werror
+        run: |
+          arm-none-eabi-gcc -std=c11 -mcpu=cortex-m4 -mthumb -mfloat-abi=hard -mfpu=fpv4-sp-d16 -Os \
+            -ffunction-sections -fdata-sections -Wall -Wextra -Wpedantic -Wconversion -Wshadow -Werror \
+            -Iinclude -c src/can_frames.c src/ecu.c
+          arm-none-eabi-size can_frames.o ecu.o
+      - name: Confere que a ECU nao usa alocacao dinamica
+        run: |
+          arm-none-eabi-nm -u can_frames.o ecu.o
+          if arm-none-eabi-nm -u can_frames.o ecu.o | grep -E '\b(malloc|calloc|realloc|free)\b'; then exit 1; fi
+
+  telemetry-server:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+      - run: dotnet test server/SimTelemetry.Tests --nologo
+
+  # Ponta a ponta: o simulador em C++ (ECU no laco) manda a telemetria por TCP ao servidor C#.
+  telemetry-e2e:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+      - run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DSIM_BUILD_TESTS=OFF
+      - run: cmake --build build -j --target sim_telemetry_dump
+      - run: dotnet build server/SimTelemetry.Cli -c Release --nologo
+      - name: Servidor e simulador conversando por TCP
+        run: |
+          dotnet server/SimTelemetry.Cli/bin/Release/net8.0/SimTelemetry.Cli.dll 5055 2215.0147 120 > server.log &
+          server_pid=$!
+          for i in $(seq 1 60); do grep -q ouvindo server.log && break; sleep 1; done
+          ./build/sim_telemetry_dump - 2 127.0.0.1:5055 | tee client.log
+          wait $server_pid
+          cat server.log
+          sent=$(grep -o 'quadros=[0-9]*' client.log | cut -d= -f2)
+          received=$(grep '^quadros=' server.log | cut -d= -f2)
+          echo "enviados=$sent recebidos=$received"
+          test "$sent" -gt 9000
+          test "$sent" = "$received"
+          grep -q '^voltas=2$' server.log
+
+  # Ponta a ponta com broker: o simulador publica Protobuf no broker; o servidor (assinante) grava a
+  # sessao e um segundo assinante confere que chegou cada amostra, em ordem, sem perda.
+  broker-e2e:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+      - run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DSIM_BUILD_TESTS=OFF
+      - run: cmake --build build -j --target sim_telemetry_dump
+      - run: dotnet build server/SimTelemetry.Cli -c Release --nologo
+      - name: Simulador, broker e servidor conversando
+        run: |
+          cli=server/SimTelemetry.Cli/bin/Release/net8.0/SimTelemetry.Cli.dll
+          dotnet $cli broker 5060 > broker.log &
+          for i in $(seq 1 60); do grep -q ouvindo broker.log && break; sleep 1; done
+          dotnet $cli serve sessions.db 5055 8080 --broker 127.0.0.1:5060 > serve.log &
+          for i in $(seq 1 60); do grep -q ouvindo serve.log && break; sleep 1; done
+          timeout 120 dotnet $cli consume 127.0.0.1:5060 telemetry.sample > consumed.log &
+          consumer=$!
+          for i in $(seq 1 60); do grep -q assinado consumed.log && break; sleep 1; done
+          ./build/sim_telemetry_dump - 2 broker:127.0.0.1:5060 | tee client.log
+          sent=$(grep -o 'quadros=[0-9]*' client.log | cut -d= -f2)
+          for i in $(seq 1 30); do
+            recorded=$(curl -s http://127.0.0.1:8080/sessions | jq '.[0].samples // 0')
+            [ "$recorded" = "$sent" ] && break
+            sleep 1
+          done
+          sleep 2
+          kill $consumer || true
+          echo "enviados=$sent gravados=$recorded"
+          test "$sent" -gt 9000
+          test "$sent" = "$recorded"
+          test "$(curl -s http://127.0.0.1:8080/sessions/1/laps | jq length)" = 2
+          grep -o 'seq=[0-9]*' consumed.log | cut -d= -f2 | awk -v n="$sent" 'NR-1 != $1 {bad=1} END {exit (bad || NR != n)}'
+
+  # Gera a telemetria real de duas voltas (fixture dos testes do servidor C#) e a publica.
+  telemetry-fixture:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DSIM_BUILD_TESTS=OFF
+      - run: cmake --build build -j --target sim_telemetry_dump
+      - run: ./build/sim_telemetry_dump reference_2laps.can 2
+      - uses: actions/upload-artifact@v4
+        with:
+          name: reference_2laps
+          path: reference_2laps.can
+
+  sanitize:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Configure (ASan + UBSan)
+        run: cmake -S . -B build -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++ -DCMAKE_BUILD_TYPE=Debug -DSIM_SANITIZE=ON
+      - run: cmake --build build -j
+      - run: ctest --test-dir build --output-on-failure

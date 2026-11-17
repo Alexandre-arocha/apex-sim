@@ -1,0 +1,38 @@
+syntax = "proto3";
+
+package simcorrida;
+
+option csharp_namespace = "SimTelemetry.Proto";
+
+// Protocolo do broker pub/sub. No fio, cada mensagem e um quadro: 4 bytes com o tamanho (uint32,
+// big-endian, de 1 a 1 MiB) seguidos da mensagem Protobuf.
+
+// Topico exato, ou prefixo terminado em '*' (por exemplo "telemetry.*").
+message Subscribe {
+  string topic = 1;
+}
+
+message Publish {
+  string topic = 1;
+  bytes payload = 2;
+}
+
+message Ack {
+  string topic = 1;  // assinatura confirmada
+}
+
+// Cliente -> broker.
+message ClientMessage {
+  oneof kind {
+    Subscribe subscribe = 1;
+    Publish publish = 2;
+  }
+}
+
+// Broker -> cliente.
+message ServerMessage {
+  oneof kind {
+    Publish publish = 1;
+    Ack ack = 2;
+  }
+}

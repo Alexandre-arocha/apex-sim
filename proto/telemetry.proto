@@ -1,0 +1,23 @@
+syntax = "proto3";
+
+package simcorrida;
+
+option csharp_namespace = "SimTelemetry.Proto";
+
+// Uma amostra de telemetria da ECU (100 Hz). A amostra de numero `sequence` (0, 1, 2, ...) e do
+// instante (sequence + 1) / 100 s da sessao; quem recebe usa o numero para detectar perdas.
+message TelemetrySample {
+  uint64 sequence = 1;
+  double speed_mps = 2;
+  double rpm = 3;
+  double throttle = 4;  // [0, 1]
+  double brake = 5;     // [0, 1]
+  uint32 gear = 6;
+  uint32 flags = 7;     // ECU_FLAG_*: 1 limite de giro, 2 freio venceu, 4 sem piloto
+}
+
+// Abre uma sessao nova de gravacao; as amostras que se seguem pertencem a ela.
+message SessionStart {
+  string name = 1;
+  double track_length_m = 2;
+}
